@@ -1,267 +1,234 @@
 <?php
 // student_form.php
-// Page 1: Collects student information and stores it in $_SESSION for the next page.
+// Page 1: Collect student details, validate, save to session, forward to stream_selection.php
 
-// Start session so we can save data and show validation errors across requests
 session_start();
 
-// Initialize variables and error array
+// Initialize errors array and old values for sticky form behavior
 $errors = [];
-$values = [
-    'full_name'=>'', 'father_name'=>'', 'mother_name'=>'', 'dob'=>'', 'gender'=>'',
-    'contact'=>'', 'email'=>'', 'address'=>'', 'city'=>'', 'state'=>'', 'pincode'=>'',
-    'nationality'=>'', 'current_grade'=>'', 'previous_school'=>'', 'career_interest'=>''
-];
+$old = [];
 
-// If the form was submitted, validate and save into session, then redirect to stream_selection.php
+// If form submitted, validate server-side
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Trim and assign posted values
-    foreach ($values as $k => $v) {
-        $values[$k] = isset($_POST[$k]) ? trim($_POST[$k]) : '';
+    // Helper to trim & store
+    function gv($k) { return isset($_POST[$k]) ? trim($_POST[$k]) : ''; }
+
+    $fields = [
+        'full_name','father_name','mother_name','dob','gender','contact','email',
+        'address','city','state','pin','nationality','grade','prev_school','career'
+    ];
+
+    foreach ($fields as $f) $old[$f] = gv($f);
+
+    // Mandatory fields to check (career is optional)
+    $required = [
+        'full_name','father_name','mother_name','dob','gender','contact','email',
+        'address','city','state','pin','nationality','grade','prev_school'
+    ];
+
+    foreach ($required as $r) {
+        if ($old[$r] === '') $errors[$r] = 'This field is required';
     }
 
-    // Validation
-    if ($values['full_name'] === '') {
-        $errors['full_name'] = "Full name is required.";
+    // Email format
+    if (!isset($errors['email']) && !filter_var($old['email'], FILTER_VALIDATE_EMAIL)) {
+        $errors['email'] = 'Enter a valid email address';
     }
-    if ($values['father_name'] === '') {
-        $errors['father_name'] = "Father's name is required.";
-    }
-    if ($values['mother_name'] === '') {
-        $errors['mother_name'] = "Mother's name is required.";
-    }
-    // DOB validation: required & valid date (YYYY-MM-DD)
-    if ($values['dob'] === '') {
-        $errors['dob'] = "Date of birth is required.";
-    } else {
-        $d = DateTime::createFromFormat('Y-m-d', $values['dob']);
-        $d_errors = DateTime::getLastErrors();
-        if (!$d || $d_errors['warning_count'] + $d_errors['error_count'] > 0) {
-            $errors['dob'] = "Invalid date format. Use the date picker.";
+
+    // Contact number: allow digits, 10-15 length (India usually 10)
+    if (!isset($errors['contact'])) {
+        $cleanContact = preg_replace('/\D+/', '', $old['contact']);
+        if (strlen($cleanContact) < 7 || strlen($cleanContact) > 15) {
+            $errors['contact'] = 'Enter a valid contact number (7-15 digits)';
+        } else {
+            $old['contact'] = $cleanContact;
         }
     }
-    // Gender required
-    if (!in_array($values['gender'], ['Male','Female','Other'], true)) {
-        $errors['gender'] = "Select a valid gender.";
-    }
-    // Contact validation (India-like 10 digits) - accept +, spaces, dashes optionally
-    $normalizedContact = preg_replace('/[^0-9]/','',$values['contact']);
-    if ($values['contact'] === '') {
-        $errors['contact'] = "Contact number is required.";
-    } elseif (!preg_match('/^[0-9]{10,15}$/', $normalizedContact)) {
-        $errors['contact'] = "Enter a valid contact number (10-15 digits).";
-    } else {
-        // store normalized number for consistency
-        $values['contact'] = $normalizedContact;
-    }
-    // Email validation
-    if ($values['email'] === '') {
-        $errors['email'] = "Email is required.";
-    } elseif (!filter_var($values['email'], FILTER_VALIDATE_EMAIL)) {
-        $errors['email'] = "Enter a valid email address.";
-    }
-    // Address fields
-    if ($values['address'] === '') {
-        $errors['address'] = "Address is required.";
-    }
-    if ($values['city'] === '') {
-        $errors['city'] = "City is required.";
-    }
-    if ($values['state'] === '') {
-        $errors['state'] = "State is required.";
-    }
-    // Pin code: 4-6 digits typical
-    if ($values['pincode'] === '') {
-        $errors['pincode'] = "Pin code is required.";
-    } elseif (!preg_match('/^[0-9]{4,6}$/', $values['pincode'])) {
-        $errors['pincode'] = "Enter a valid pin code (4-6 digits).";
-    }
-    if ($values['nationality'] === '') {
-        $errors['nationality'] = "Nationality is required.";
-    }
-    if ($values['current_grade'] === '') {
-        $errors['current_grade'] = "Current grade/class is required.";
-    }
-    if ($values['previous_school'] === '') {
-        $errors['previous_school'] = "Previous school/college is required.";
-    }
-    // career_interest is optional
 
-    // If no errors, save to session and redirect to stream_selection.php
+    // Pin code: digits only (India 6 digits typically)
+    if (!isset($errors['pin']) && !preg_match('/^\d{4,8}$/', $old['pin'])) {
+        $errors['pin'] = 'Enter a valid pin/zip (4-8 digits)';
+    }
+
+    // DOB: basic YYYY-MM-DD check
+    if (!isset($errors['dob'])) {
+        $d = $old['dob'];
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) || !strtotime($d)) {
+            $errors['dob'] = 'Enter DOB in YYYY-MM-DD';
+        }
+    }
+
+    // If no errors, store in session and redirect to stream selection
     if (empty($errors)) {
-        $_SESSION['student'] = $values;
-        // Clear any previous stream selection
-        unset($_SESSION['stream']);
-        unset($_SESSION['scopes']);
+        $_SESSION['student'] = [
+            'full_name' => $old['full_name'],
+            'father_name' => $old['father_name'],
+            'mother_name' => $old['mother_name'],
+            'dob' => $old['dob'],
+            'gender' => $old['gender'],
+            'contact' => $old['contact'],
+            'email' => $old['email'],
+            'address' => $old['address'],
+            'city' => $old['city'],
+            'state' => $old['state'],
+            'pin' => $old['pin'],
+            'nationality' => $old['nationality'],
+            'grade' => $old['grade'],
+            'prev_school' => $old['prev_school'],
+            'career' => $old['career']
+        ];
+
+        // Redirect to next page
         header('Location: stream_selection.php');
         exit;
-    } else {
-        // Save values back to session temporarily so fields can persist (optional)
-        $_SESSION['student_temp_values'] = $values;
-    }
-} else {
-    // If user visited fresh and session has saved student (e.g., editing), prefill values
-    if (isset($_SESSION['student'])) {
-        $values = array_merge($values, $_SESSION['student']);
-    } elseif (isset($_SESSION['student_temp_values'])) {
-        $values = array_merge($values, $_SESSION['student_temp_values']);
     }
 }
 ?>
 <!doctype html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <title>Student Registration - Step 1</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <style>
-        /* Basic clean CSS layout */
-        body { font-family: Arial, sans-serif; background:#f5f7fb; margin:0; padding:20px; }
-        .container { max-width:900px; margin:20px auto; background:#fff; padding:22px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.06); }
-        h1{margin-top:0}
-        form .row { display:flex; gap:12px; margin-bottom:12px; }
-        .col { flex:1; min-width:150px; }
-        label { display:block; font-weight:600; margin-bottom:6px; font-size:0.95rem; }
-        input[type="text"], input[type="email"], input[type="date"], textarea, select {
-            width:100%; padding:8px 10px; border:1px solid #cfd8e3; border-radius:6px;
-            font-size:0.95rem;
-        }
-        textarea { min-height:70px; resize:vertical; }
-        .error { color:#b00020; font-size:0.88rem; margin-top:6px; }
-        .actions { display:flex; gap:10px; margin-top:16px; }
-        button { padding:10px 16px; border-radius:6px; border:none; font-weight:600; cursor:pointer; }
-        button.primary { background:#0b74de; color:white; }
-        button.reset { background:#e6eefc; color:#0b74de; }
-        .note { color:#5f6b7a; font-size:0.92rem; margin-bottom:8px; }
-        @media (max-width:640px) { .row { flex-direction:column; } }
-    </style>
+<meta charset="utf-8">
+<title>Student Registration - Step 1</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+/* Basic clean CSS */
+body { font-family: Arial, sans-serif; background:#f5f7fb; padding:20px; }
+.container { max-width:900px; margin:0 auto; background:#fff; border-radius:8px; padding:20px; box-shadow:0 6px 20px rgba(0,0,0,0.06); }
+h1 { margin-top:0 }
+.form-row { display:flex; gap:12px; margin-bottom:12px; }
+.form-col { flex:1; display:flex; flex-direction:column; }
+label { font-weight:600; margin-bottom:6px; font-size:14px }
+input[type=text], input[type=email], input[type=date], textarea, select { padding:8px; border:1px solid #ccc; border-radius:6px; font-size:14px }
+textarea { resize:vertical; min-height:80px; }
+.error { color:#b00020; font-size:13px; margin-top:6px }
+.actions { display:flex; gap:10px; margin-top:16px; }
+button { padding:10px 16px; border-radius:8px; border:0; cursor:pointer; font-weight:600 }
+button.primary { background:#2b6cb0; color:#fff }
+button.secondary { background:#eee }
+.small { font-size:13px; color:#666; margin-top:6px }
+</style>
 </head>
 <body>
 <div class="container">
     <h1>Student Registration — Step 1</h1>
-    <p class="note">Fill the details below. Fields marked required will be validated.</p>
+    <p class="small">Fill required fields and click Submit to continue to stream selection.</p>
 
-    <form method="post" novalidate>
-        <!-- Row 1: Full Name -->
-        <div class="row">
-            <div class="col">
-                <label for="full_name">Full Name *</label>
-                <input id="full_name" name="full_name" type="text" value="<?=htmlspecialchars($values['full_name'])?>" required>
-                <?php if (isset($errors['full_name'])): ?><div class="error"><?=$errors['full_name']?></div><?php endif; ?>
+    <!-- Show top-level error summary if desired -->
+    <?php if (!empty($errors)): ?>
+        <div class="error"><strong>There are errors in the form. Please fix them below.</strong></div>
+    <?php endif; ?>
+
+    <form method="post" action="student_form.php" novalidate>
+        <div class="form-row">
+            <div class="form-col">
+                <label>Full Name *</label>
+                <input type="text" name="full_name" value="<?= htmlspecialchars($old['full_name'] ?? '') ?>">
+                <?php if(!empty($errors['full_name'])): ?><div class="error"><?= $errors['full_name'] ?></div><?php endif; ?>
             </div>
-            <div class="col">
-                <label for="father_name">Father's Name *</label>
-                <input id="father_name" name="father_name" type="text" value="<?=htmlspecialchars($values['father_name'])?>" required>
-                <?php if (isset($errors['father_name'])): ?><div class="error"><?=$errors['father_name']?></div><?php endif; ?>
+            <div class="form-col">
+                <label>Father's Name *</label>
+                <input type="text" name="father_name" value="<?= htmlspecialchars($old['father_name'] ?? '') ?>">
+                <?php if(!empty($errors['father_name'])): ?><div class="error"><?= $errors['father_name'] ?></div><?php endif; ?>
             </div>
         </div>
 
-        <!-- Row 2 -->
-        <div class="row">
-            <div class="col">
-                <label for="mother_name">Mother's Name *</label>
-                <input id="mother_name" name="mother_name" type="text" value="<?=htmlspecialchars($values['mother_name'])?>" required>
-                <?php if (isset($errors['mother_name'])): ?><div class="error"><?=$errors['mother_name']?></div><?php endif; ?>
+        <div class="form-row">
+            <div class="form-col">
+                <label>Mother's Name *</label>
+                <input type="text" name="mother_name" value="<?= htmlspecialchars($old['mother_name'] ?? '') ?>">
+                <?php if(!empty($errors['mother_name'])): ?><div class="error"><?= $errors['mother_name'] ?></div><?php endif; ?>
             </div>
-            <div class="col">
-                <label for="dob">Date of Birth *</label>
-                <input id="dob" name="dob" type="date" value="<?=htmlspecialchars($values['dob'])?>" required>
-                <?php if (isset($errors['dob'])): ?><div class="error"><?=$errors['dob']?></div><?php endif; ?>
+            <div class="form-col">
+                <label>Date of Birth *</label>
+                <input type="date" name="dob" value="<?= htmlspecialchars($old['dob'] ?? '') ?>">
+                <?php if(!empty($errors['dob'])): ?><div class="error"><?= $errors['dob'] ?></div><?php endif; ?>
             </div>
         </div>
 
-        <!-- Row 3 Gender & Contact -->
-        <div class="row">
-            <div class="col">
-                <label for="gender">Gender *</label>
-                <select id="gender" name="gender" required>
+        <div class="form-row">
+            <div class="form-col">
+                <label>Gender *</label>
+                <select name="gender">
                     <option value="">-- Select --</option>
-                    <?php
-                        $glist = ['Male','Female','Other'];
-                        foreach($glist as $g) {
-                            $sel = ($values['gender'] === $g) ? 'selected' : '';
-                            echo "<option value=\"$g\" $sel>$g</option>";
-                        }
-                    ?>
+                    <?php $g = $old['gender'] ?? ''; ?>
+                    <option <?= $g==='Male' ? 'selected' : '' ?>>Male</option>
+                    <option <?= $g==='Female' ? 'selected' : '' ?>>Female</option>
+                    <option <?= $g==='Other' ? 'selected' : '' ?>>Other</option>
                 </select>
-                <?php if (isset($errors['gender'])): ?><div class="error"><?=$errors['gender']?></div><?php endif; ?>
+                <?php if(!empty($errors['gender'])): ?><div class="error"><?= $errors['gender'] ?></div><?php endif; ?>
             </div>
-            <div class="col">
-                <label for="contact">Contact Number *</label>
-                <input id="contact" name="contact" type="text" placeholder="Digits only (10-15)" value="<?=htmlspecialchars($values['contact'])?>" required>
-                <?php if (isset($errors['contact'])): ?><div class="error"><?=$errors['contact']?></div><?php endif; ?>
+
+            <div class="form-col">
+                <label>Contact Number *</label>
+                <input type="text" name="contact" placeholder="digits only" value="<?= htmlspecialchars($old['contact'] ?? '') ?>">
+                <?php if(!empty($errors['contact'])): ?><div class="error"><?= $errors['contact'] ?></div><?php endif; ?>
             </div>
         </div>
 
-        <!-- Row 4 Email & Address -->
-        <div class="row">
-            <div class="col">
-                <label for="email">Email Address *</label>
-                <input id="email" name="email" type="email" value="<?=htmlspecialchars($values['email'])?>" required>
-                <?php if (isset($errors['email'])): ?><div class="error"><?=$errors['email']?></div><?php endif; ?>
+        <div class="form-row">
+            <div class="form-col">
+                <label>Email Address *</label>
+                <input type="email" name="email" value="<?= htmlspecialchars($old['email'] ?? '') ?>">
+                <?php if(!empty($errors['email'])): ?><div class="error"><?= $errors['email'] ?></div><?php endif; ?>
             </div>
-            <div class="col">
-                <label for="address">Address *</label>
-                <textarea id="address" name="address" required><?=htmlspecialchars($values['address'])?></textarea>
-                <?php if (isset($errors['address'])): ?><div class="error"><?=$errors['address']?></div><?php endif; ?>
-            </div>
-        </div>
-
-        <!-- Row 5 City State Pincode -->
-        <div class="row">
-            <div class="col">
-                <label for="city">City *</label>
-                <input id="city" name="city" type="text" value="<?=htmlspecialchars($values['city'])?>" required>
-                <?php if (isset($errors['city'])): ?><div class="error"><?=$errors['city']?></div><?php endif; ?>
-            </div>
-            <div class="col">
-                <label for="state">State *</label>
-                <input id="state" name="state" type="text" value="<?=htmlspecialchars($values['state'])?>" required>
-                <?php if (isset($errors['state'])): ?><div class="error"><?=$errors['state']?></div><?php endif; ?>
-            </div>
-            <div class="col">
-                <label for="pincode">Pin Code *</label>
-                <input id="pincode" name="pincode" type="text" value="<?=htmlspecialchars($values['pincode'])?>" required>
-                <?php if (isset($errors['pincode'])): ?><div class="error"><?=$errors['pincode']?></div><?php endif; ?>
+            <div class="form-col">
+                <label>Address *</label>
+                <textarea name="address"><?= htmlspecialchars($old['address'] ?? '') ?></textarea>
+                <?php if(!empty($errors['address'])): ?><div class="error"><?= $errors['address'] ?></div><?php endif; ?>
             </div>
         </div>
 
-        <!-- Row 6 Nationality & Grade -->
-        <div class="row">
-            <div class="col">
-                <label for="nationality">Nationality *</label>
-                <input id="nationality" name="nationality" type="text" value="<?=htmlspecialchars($values['nationality'])?>" required>
-                <?php if (isset($errors['nationality'])): ?><div class="error"><?=$errors['nationality']?></div><?php endif; ?>
+        <div class="form-row">
+            <div class="form-col">
+                <label>City *</label>
+                <input type="text" name="city" value="<?= htmlspecialchars($old['city'] ?? '') ?>">
+                <?php if(!empty($errors['city'])): ?><div class="error"><?= $errors['city'] ?></div><?php endif; ?>
             </div>
-            <div class="col">
-                <label for="current_grade">Current Grade/Class *</label>
-                <input id="current_grade" name="current_grade" type="text" value="<?=htmlspecialchars($values['current_grade'])?>" required>
-                <?php if (isset($errors['current_grade'])): ?><div class="error"><?=$errors['current_grade']?></div><?php endif; ?>
-            </div>
-            <div class="col">
-                <label for="previous_school">Previous School/College *</label>
-                <input id="previous_school" name="previous_school" type="text" value="<?=htmlspecialchars($values['previous_school'])?>" required>
-                <?php if (isset($errors['previous_school'])): ?><div class="error"><?=$errors['previous_school']?></div><?php endif; ?>
+            <div class="form-col">
+                <label>State *</label>
+                <input type="text" name="state" value="<?= htmlspecialchars($old['state'] ?? '') ?>">
+                <?php if(!empty($errors['state'])): ?><div class="error"><?= $errors['state'] ?></div><?php endif; ?>
             </div>
         </div>
 
-        <!-- Row 7 Optional career interest -->
-        <div class="row">
-            <div class="col">
-                <label for="career_interest">Preferred Career / Interest (optional)</label>
-                <input id="career_interest" name="career_interest" type="text" value="<?=htmlspecialchars($values['career_interest'])?>">
+        <div class="form-row">
+            <div class="form-col">
+                <label>Pin Code *</label>
+                <input type="text" name="pin" value="<?= htmlspecialchars($old['pin'] ?? '') ?>">
+                <?php if(!empty($errors['pin'])): ?><div class="error"><?= $errors['pin'] ?></div><?php endif; ?>
+            </div>
+            <div class="form-col">
+                <label>Nationality *</label>
+                <input type="text" name="nationality" value="<?= htmlspecialchars($old['nationality'] ?? '') ?>">
+                <?php if(!empty($errors['nationality'])): ?><div class="error"><?= $errors['nationality'] ?></div><?php endif; ?>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-col">
+                <label>Current Grade / Class *</label>
+                <input type="text" name="grade" placeholder="e.g., 12th, B.Sc, 3rd Year" value="<?= htmlspecialchars($old['grade'] ?? '') ?>">
+                <?php if(!empty($errors['grade'])): ?><div class="error"><?= $errors['grade'] ?></div><?php endif; ?>
+            </div>
+            <div class="form-col">
+                <label>Previous School / College *</label>
+                <input type="text" name="prev_school" value="<?= htmlspecialchars($old['prev_school'] ?? '') ?>">
+                <?php if(!empty($errors['prev_school'])): ?><div class="error"><?= $errors['prev_school'] ?></div><?php endif; ?>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-col" style="flex:1 1 100%">
+                <label>Preferred Career / Interest (optional)</label>
+                <input type="text" name="career" value="<?= htmlspecialchars($old['career'] ?? '') ?>">
             </div>
         </div>
 
         <div class="actions">
-            <button type="submit" class="primary">Submit &amp; Continue →</button>
-            <button type="reset" class="reset">Reset Form</button>
+            <button type="submit" class="primary">Submit →</button>
+            <button type="reset" class="secondary" onclick="location.href='student_form.php'">Reset</button>
         </div>
     </form>
-
-    <p style="margin-top:14px;font-size:0.9rem;color:#596370">
-        Note: This demo uses PHP sessions to pass data between pages. Server-side validation is performed.
-    </p>
 </div>
 </body>
 </html>

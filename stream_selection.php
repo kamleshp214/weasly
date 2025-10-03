@@ -1,175 +1,191 @@
 <?php
 // stream_selection.php
-// Page 2: Let user choose a stream and the related scopes (careers).
-// Uses session to read student info from Page 1 and to store stream/scopes for summary.
+// Page 2: Choose a stream and related scopes. Saves selections in session and goes to summary.php
 
-// Start session
 session_start();
 
-// Redirect back to form if no student info present
+// Ensure student data from page 1 exists; if not, redirect back
 if (!isset($_SESSION['student'])) {
     header('Location: student_form.php');
     exit;
 }
 
-// Pre-define the mapping of streams to scope options
-$stream_map = [
-    'Science' => ['Engineering','Medical','Research','Data Science','Environmental Science'],
-    'Commerce' => ['Chartered Accountant','Business Management','Economist','Banking','Accounting'],
-    'Arts / Humanities' => ['Law','Journalism','Psychology','Literature','Political Science']
+$errors = [];
+$old = [
+    'stream' => '',
+    'scopes' => []
 ];
 
-$errors = [];
-$selectedStream = $_SESSION['stream'] ?? '';
-$selectedScopes = $_SESSION['scopes'] ?? [];
-
-// If form submitted, validate and save to session then redirect to summary.php
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $selectedStream = isset($_POST['stream']) ? trim($_POST['stream']) : '';
-    $selectedScopes = isset($_POST['scopes']) && is_array($_POST['scopes']) ? array_map('trim', $_POST['scopes']) : [];
+    $old['stream'] = isset($_POST['stream']) ? trim($_POST['stream']) : '';
+    $old['scopes'] = isset($_POST['scopes']) && is_array($_POST['scopes']) ? $_POST['scopes'] : [];
 
-    // Validate stream
-    if ($selectedStream === '' || !array_key_exists($selectedStream, $stream_map)) {
-        $errors['stream'] = "Please select a valid stream.";
+    if ($old['stream'] === '') {
+        $errors['stream'] = 'Please select a stream';
     } else {
-        // Validate that each selected scope belongs to the chosen stream (server-side security)
-        $validScopes = $stream_map[$selectedStream];
-        foreach ($selectedScopes as $s) {
-            if (!in_array($s, $validScopes, true)) {
-                $errors['scopes'] = "Invalid scope selection detected.";
-                break;
-            }
-        }
-    }
+        // Validate scopes belong to stream server-side
+        $validScopes = [
+            'Science' => ['Engineering','Medical','Research','Data Science','Environmental Science'],
+            'Commerce' => ['Chartered Accountant','Business Management','Economist','Banking','Accounting'],
+            'Arts' => ['Law','Journalism','Psychology','Literature','Political Science'],
+            'Arts / Humanities' => ['Law','Journalism','Psychology','Literature','Political Science']
+        ];
 
-    // Optionally require at least one scope:
-    // if (empty($selectedScopes)) { $errors['scopes'] = "Choose at least one scope/career option."; }
+        $allowed = $validScopes[$old['stream']] ?? [];
 
-    if (empty($errors)) {
-        $_SESSION['stream'] = $selectedStream;
-        $_SESSION['scopes'] = $selectedScopes;
+        // filter posted scopes to allowed
+        $old['scopes'] = array_values(array_filter($old['scopes'], function($s) use ($allowed) {
+            return in_array($s, $allowed, true);
+        }));
+
+        // Save to session and go to summary
+        $_SESSION['student']['stream'] = $old['stream'];
+        $_SESSION['student']['scopes'] = $old['scopes'];
+
         header('Location: summary.php');
         exit;
     }
 }
-
-// For safe output
-function e($s) { return htmlspecialchars($s, ENT_QUOTES); }
 ?>
 <!doctype html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <title>Student Registration - Stream Selection</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <style>
-        body { font-family: Arial, sans-serif; background:#f5f7fb; padding:20px; }
-        .container { max-width:700px; margin:24px auto; background:#fff; padding:20px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.06); }
-        h1{margin-top:0}
-        label{font-weight:600}
-        select { width:100%; padding:8px 10px; margin:8px 0 14px; border-radius:6px; border:1px solid #cfd8e3; }
-        .scopes { display:flex; flex-wrap:wrap; gap:10px; margin-top:6px; }
-        .scope-item { background:#f1f6ff; padding:8px 10px; border-radius:6px; border:1px solid #e0ecff; }
-        .error { color:#b00020; margin-top:6px; }
-        .actions { margin-top:14px; display:flex; gap:10px; }
-        button { padding:10px 14px; border-radius:6px; border:none; cursor:pointer; font-weight:600; }
-        .primary { background:#0b74de; color:white; }
-        .secondary { background:#eef3fb; color:#0b74de; }
-        .student-summary { margin-top:12px; font-size:0.95rem; color:#334155; background:#fbfcff; padding:10px; border-radius:6px; border:1px solid #eef3fb; }
-    </style>
-    <script>
-        // JS will show/hide scopes based on selected stream
-        document.addEventListener('DOMContentLoaded', function(){
-            const streamMap = {
-                <?php
-                $pairs = [];
-                foreach ($stream_map as $k => $arr) {
-                    $pairs[] = json_encode($k) . ':' . json_encode($arr);
-                }
-                echo implode(',', $pairs);
-                ?>
-            };
-            const streamSelect = document.getElementById('stream');
-            const scopesWrapper = document.getElementById('scopesWrapper');
+<meta charset="utf-8">
+<title>Stream Selection - Step 2</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body { font-family: Arial, sans-serif; background:#f5f7fb; padding:20px; }
+.container { max-width:800px; margin:0 auto; background:#fff; padding:20px; border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,0.06); }
+h1 { margin-top:0 }
+.form-row { margin-bottom:12px; }
+.checkbox-list { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px }
+.checkbox-item { background:#f1f5f9; padding:8px 10px; border-radius:6px; }
+.error { color:#b00020; font-size:13px }
+button.primary { background:#2b6cb0; color:#fff; padding:10px 14px; border-radius:8px; border:0; cursor:pointer }
+.small { font-size:13px; color:#666 }
+</style>
+<script>
+// Client-side mapping for dynamic UI
+const scopesMap = {
+    'Science': ['Engineering','Medical','Research','Data Science','Environmental Science'],
+    'Commerce': ['Chartered Accountant','Business Management','Economist','Banking','Accounting'],
+    'Arts / Humanities': ['Law','Journalism','Psychology','Literature','Political Science'],
+    'Arts': ['Law','Journalism','Psychology','Literature','Political Science']
+};
 
-            function renderScopesFor(stream) {
-                scopesWrapper.innerHTML = '';
-                if (!stream || !streamMap[stream]) return;
-                const scopes = streamMap[stream];
-                scopes.forEach(function(scope){
-                    const id = 'scope_' + scope.replace(/\s+/g,'_');
-                    const div = document.createElement('div');
-                    div.className = 'scope-item';
-                    const checkbox = document.createElement('input');
-                    checkbox.type = 'checkbox';
-                    checkbox.name = 'scopes[]';
-                    checkbox.value = scope;
-                    checkbox.id = id;
-                    // Pre-check if already selected (server-reserved via HTML data)
-                    const pre = document.querySelector('input[name="__preselected_scopes"]');
-                    if (pre) {
-                        try {
-                            const prearray = JSON.parse(pre.value);
-                            if (prearray.indexOf(scope) !== -1) checkbox.checked = true;
-                        } catch(e){}
-                    }
-                    const label = document.createElement('label');
-                    label.htmlFor = id;
-                    label.style.marginLeft = '6px';
-                    label.innerText = scope;
+function renderScopes(stream) {
+    const container = document.getElementById('scopesContainer');
+    container.innerHTML = '';
+    if (!stream) return;
+    const list = scopesMap[stream] || [];
+    list.forEach(s => {
+        const id = 'scope_' + s.replace(/\s+/g,'_');
+        const div = document.createElement('div');
+        div.className = 'checkbox-item';
+        div.innerHTML = `<label><input type="checkbox" name="scopes[]" value="${s}" id="${id}"> ${s}</label>`;
+        container.appendChild(div);
+    });
+}
 
-                    div.appendChild(checkbox);
-                    div.appendChild(label);
-                    scopesWrapper.appendChild(div);
+// On page load, if stream preselected, render and check
+window.addEventListener('DOMContentLoaded', () => {
+    const sel = document.querySelector('select[name="stream"]');
+    if (sel && sel.value) {
+        renderScopes(sel.value);
+
+        // restore any previously selected scopes from data attribute
+        const pre = container.getAttribute('data-preselected');
+        if (pre) {
+            try {
+                const arr = JSON.parse(pre);
+                arr.forEach(v => {
+                    const el = document.querySelector(`input[name="scopes[]"][value="${v}"]`);
+                    if (el) el.checked = true;
                 });
-            }
-
-            // initial render based on selected stream (if any)
-            renderScopesFor(streamSelect.value);
-
-            streamSelect.addEventListener('change', function(){
-                renderScopesFor(this.value);
-            });
-        });
-    </script>
+            } catch(e) {}
+        }
+    }
+});
+</script>
 </head>
 <body>
 <div class="container">
-    <h1>Step 2 — Stream &amp; Career Scopes</h1>
+    <h1>Stream & Career Scope — Step 2</h1>
+    <p class="small">Select a stream. Only related scopes will be shown. Select multiple scopes if applicable.</p>
 
-    <div class="student-summary">
-        <strong>Student:</strong> <?=e($_SESSION['student']['full_name'])?> — <?=e($_SESSION['student']['current_grade'])?><br>
-        <small style="color:#6b7280">Email: <?=e($_SESSION['student']['email'])?> | Contact: <?=e($_SESSION['student']['contact'])?></small>
-    </div>
+    <?php if (!empty($errors)): ?>
+        <div class="error"><strong>Fix the errors below.</strong></div>
+    <?php endif; ?>
 
-    <form method="post" novalidate style="margin-top:12px;">
-        <label for="stream">Select Stream *</label>
-        <select id="stream" name="stream" required>
-            <option value="">-- Select a stream --</option>
-            <?php foreach ($stream_map as $streamName => $list): 
-                $sel = ($selectedStream === $streamName) ? 'selected' : '';
-            ?>
-                <option value="<?=e($streamName)?>" <?=$sel?>><?=e($streamName)?></option>
-            <?php endforeach; ?>
-        </select>
-        <?php if (isset($errors['stream'])): ?><div class="error"><?=$errors['stream']?></div><?php endif; ?>
+    <form method="post" action="stream_selection.php" onsubmit="return true;">
+        <div class="form-row">
+            <label><strong>Stream *</strong></label><br>
+            <?php $sel = $old['stream'] ?? ''; ?>
+            <select name="stream" onchange="renderScopes(this.value)">
+                <option value="">-- Select Stream --</option>
+                <option value="Science" <?= $sel==='Science' ? 'selected' : '' ?>>Science</option>
+                <option value="Commerce" <?= $sel==='Commerce' ? 'selected' : '' ?>>Commerce</option>
+                <option value="Arts / Humanities" <?= ($sel==='Arts / Humanities' || $sel==='Arts') ? 'selected' : '' ?>>Arts / Humanities</option>
+            </select>
+            <?php if(!empty($errors['stream'])): ?><div class="error"><?= $errors['stream'] ?></div><?php endif; ?>
+        </div>
 
-        <label style="margin-top:10px;">Choose related scope/career options (checkboxes)</label>
-        <div id="scopesWrapper" class="scopes" aria-live="polite"></div>
-        <?php if (isset($errors['scopes'])): ?><div class="error"><?=$errors['scopes']?></div><?php endif; ?>
+        <div class="form-row">
+            <label><strong>Possible Career Scopes</strong></label>
+            <!-- The container will be populated by JS. For server-side support we also show all as fallback (progressive enhancement) -->
+            <div id="scopesContainer" data-preselected='<?= json_encode($old['scopes'] ?? []) ?>' class="checkbox-list" style="margin-top:8px;">
+                <!-- Fallback: show all grouped by stream names (but JS will replace) -->
+                <div class="checkbox-item"><strong>Science:</strong> Engineering, Medical, Research, Data Science, Environmental Science</div>
+                <div class="checkbox-item"><strong>Commerce:</strong> Chartered Accountant, Business Management, Economist, Banking, Accounting</div>
+                <div class="checkbox-item"><strong>Arts / Humanities:</strong> Law, Journalism, Psychology, Literature, Political Science</div>
+            </div>
+            <div class="small">Tip: if checkboxes don't appear, enable JavaScript or scroll — server will still validate.</div>
+        </div>
 
-        <!-- Hidden input to pass preselected scopes for JS rendering -->
-        <input type="hidden" name="__preselected_scopes" value='<?=json_encode($selectedScopes)?>'>
-
-        <div class="actions">
-            <button type="submit" class="primary">Save &amp; Continue →</button>
-            <a href="student_form.php"><button type="button" class="secondary">Edit Student Info</button></a>
+        <div style="margin-top:16px;">
+            <button type="submit" class="primary">Submit → Show Summary</button>
         </div>
     </form>
 
-    <p style="margin-top:12px;color:#667085;font-size:0.92rem">
-        Tip: The list of scope options changes based on the chosen stream. Server-side validation ensures selected scopes belong to the chosen stream.
-    </p>
+    <div style="margin-top:16px;">
+        <a href="student_form.php" class="small">← Back to Step 1 (edit student data)</a>
+    </div>
 </div>
+
+<script>
+// Extra: after initial load, we need to ensure preselected scopes are re-checked when JS builds checkboxes
+(function() {
+    const sel = document.querySelector('select[name="stream"]');
+    const pre = document.getElementById('scopesContainer').getAttribute('data-preselected');
+    sel.addEventListener('change', function() {
+        renderScopes(this.value);
+        // try to re-check previously chosen scopes (if any)
+        if (pre) {
+            try {
+                const arr = JSON.parse(pre);
+                setTimeout(() => {
+                    arr.forEach(v => {
+                        const el = document.querySelector(`input[name="scopes[]"][value="${v}"]`);
+                        if (el) el.checked = true;
+                    });
+                }, 50);
+            } catch(e) {}
+        }
+    });
+
+    // If a stream was already set on the server, render it now
+    if (sel.value) {
+        renderScopes(sel.value);
+        // restore preselected choices
+        try {
+            const arr = JSON.parse(pre);
+            arr.forEach(v => {
+                const el = document.querySelector(`input[name="scopes[]"][value="${v}"]`);
+                if (el) el.checked = true;
+            });
+        } catch(e){}
+    }
+})();
+</script>
 </body>
 </html>
